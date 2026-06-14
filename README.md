@@ -1,6 +1,6 @@
 # Nano-xDiT
 
-A minimal single-GPU [Wan](https://github.com/Wan-Video/Wan2.1) video-diffusion inference engine with TeaCache / First-Block-Cache step-skipping, extracted from [xDiT](https://github.com/xdit-project/xDiT).
+A minimal single-GPU [Wan](https://github.com/Wan-Video/Wan2.1) video-diffusion inference engine with TeaCache / First-Block-Cache step-skipping.
 
 ## Key Features
 
