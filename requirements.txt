@@ -6,3 +6,6 @@ transformers>=4.49
 accelerate>=0.34
 ftfy
 numpy
+# video export in example.py
+imageio
+imageio-ffmpeg
