@@ -1,6 +1,6 @@
 # Nano-xDiT
 
-A minimal single-GPU [Wan](https://github.com/Wan-Video/Wan2.1) video-diffusion inference engine with TeaCache / First-Block-Cache step-skipping, built on [xDiT](https://github.com/xdit-project/xDiT).
+A lightweight single-GPU [Wan](https://github.com/Wan-Video/Wan2.1) video-DiT inference engine with TeaCache / First-Block-Cache step-skipping — a minimal [xDiT](https://github.com/xdit-project/xDiT), built from scratch.
 
 ## Key Features
 
@@ -50,7 +50,7 @@ To run the engine without caching (baseline), just skip `enable_cache`.
 
 ## Benchmark
 
-See `bench.py` for the methodology.
+How much TeaCache speeds up a single-GPU Wan run (cache vs. no cache). See `bench.py` for the methodology.
 
 **Test Configuration:**
 - Hardware: 1× NVIDIA RTX PRO 6000 (Blackwell)
@@ -81,4 +81,4 @@ To experiment with a new policy, subclass `nanoxdit.cache.base.CachedWanBlocks` 
 
 ## Acknowledgements
 
-Derived from [xDiT](https://github.com/xdit-project/xDiT) (Apache-2.0). The step-skipping logic and Wan2.1 coefficients are adapted from [TeaCache](https://github.com/ali-vilab/TeaCache) and [ParaAttention](https://github.com/chengzeyi/ParaAttention). See `NOTICE`.
+The caching design follows [xDiT](https://github.com/xdit-project/xDiT) (Apache-2.0); the TeaCache algorithm and official Wan2.1 coefficients are from [TeaCache](https://github.com/ali-vilab/TeaCache), and First-Block-Cache from [ParaAttention](https://github.com/chengzeyi/ParaAttention). See `NOTICE`.
