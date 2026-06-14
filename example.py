@@ -17,7 +17,7 @@ pipe.scheduler = UniPCMultistepScheduler.from_config(pipe.scheduler.config, flow
 
 # Enable TeaCache step-skipping (rel_l1_thresh: larger => faster, lower fidelity).
 pipe.enable_cache(
-    algorithm="teacache",          # or "fbcache"
+    policy="teacache",             # or "fbcache", "perblock_demo", or your own
     num_inference_steps=30,
     rel_l1_thresh=0.2,
     wan_variant="t2v-1.3B",

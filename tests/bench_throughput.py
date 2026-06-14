@@ -83,7 +83,7 @@ def main():
     print(f"Per transformer forward (full {CFG_1_3B['num_layers']} blocks): {lat_full:.1f} ms")
 
     # --- skip-path cost (TeaCache: 0 blocks; rel-L1 + residual add only) ---
-    apply_cache_on_transformer(transformer, algorithm="teacache", num_inference_steps=STEPS,
+    apply_cache_on_transformer(transformer, policy="teacache", num_inference_steps=STEPS,
                                rel_l1_thresh=1e9, coefficients=[1.0, 0.0], use_ret_steps=True)
     cache = transformer._nano_cache
     cache.reset(); cache.set_branch("cond")

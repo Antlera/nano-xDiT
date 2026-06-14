@@ -60,7 +60,7 @@ def main():
 
     if args.thresh > 0:
         cache_kwargs = dict(
-            algorithm=args.algorithm,
+            policy=args.algorithm,
             num_inference_steps=args.steps,
             rel_l1_thresh=args.thresh,
         )

@@ -1,16 +1,17 @@
-"""End-to-end sanity test for the nano-xDiT feature cache on a tiny randomly
-initialised Wan transformer. No real weights / VAE / text encoder are needed.
+"""End-to-end sanity test for the nano-xDiT pluggable cache framework on a tiny
+randomly initialised Wan transformer. No real weights / VAE / text encoder needed.
 
 Run directly:  python tests/test_cache_tiny.py
 Or with pytest: pytest tests/test_cache_tiny.py
 
 Checks:
-  * the cache-patched transformer produces finite output of the right shape
-  * a very negative threshold forces full computation and reproduces the
-    no-cache baseline bit-for-bit (the skip path is never taken)
+  * forced-compute (very negative threshold) reproduces the no-cache baseline
+    bit-for-bit, at both "stack" and "per_block" granularity (residual mechanics
+    are exact)
   * a large threshold makes TeaCache skip every step outside the forced window
-    (use_ret_steps=True => first 5 of N steps computed, rest skipped)
-  * FBCache also skips and stays finite
+    (use_ret_steps=True => first 5 of N computed per branch)
+  * FBCache skips and stays finite
+  * per_block granularity wires N independent units and still skips
 """
 
 import torch
@@ -24,6 +25,7 @@ from nanoxdit.cache import remove_cache_from_transformer
 
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 DTYPE = torch.float32  # fp32 for a deterministic tiny test
+NUM_LAYERS = 6
 
 
 def build_tiny_transformer(seed=0):
@@ -37,7 +39,7 @@ def build_tiny_transformer(seed=0):
         text_dim=16,
         freq_dim=64,
         ffn_dim=64,
-        num_layers=6,
+        num_layers=NUM_LAYERS,
         cross_attn_norm=True,
         qk_norm="rms_norm_across_heads",
         eps=1e-6,
@@ -75,57 +77,67 @@ def main():
     # ---- baseline: no cache ----
     base_out = run(pipe, latents, prompt, negative, steps)
     assert torch.isfinite(base_out).all(), "baseline produced non-finite output"
-    print(f"[baseline ] shape={tuple(base_out.shape)} mean={base_out.mean():.5f}")
+    print(f"[baseline      ] shape={tuple(base_out.shape)} mean={base_out.mean():.5f}")
 
-    # ---- TeaCache, threshold so negative it must compute every step ----
-    apply_cache_on_transformer(
-        transformer,
-        algorithm="teacache",
-        num_inference_steps=steps,
-        rel_l1_thresh=-1e9,
-        coefficients=[1.0, 0.0],  # identity-ish; irrelevant since we never skip
-        use_ret_steps=True,
-    )
-    eq_out = run(pipe, latents, prompt, negative, steps)
-    stats = transformer._nano_cache.stats
-    skips = sum(b["skip"] for b in stats.values())
-    print(f"[tea -inf ] skips={skips} stats={stats} max|Δ|={ (eq_out-base_out).abs().max():.2e}")
-    assert skips == 0, "negative threshold should never skip"
-    assert torch.allclose(eq_out, base_out, atol=1e-5, rtol=1e-4), "forced-compute cache != baseline"
-    remove_cache_from_transformer(transformer)
+    # ---- forced-compute must be bit-exact vs baseline (stack + per_block) ----
+    for gran in ("stack", "per_block"):
+        apply_cache_on_transformer(
+            transformer, policy="teacache", num_inference_steps=steps, granularity=gran,
+            rel_l1_thresh=-1e9, coefficients=[1.0, 0.0], use_ret_steps=True,
+        )
+        out = run(pipe, latents, prompt, negative, steps)
+        skips = sum(b["skip"] for b in transformer._nano_cache.stats.values())
+        delta = (out - base_out).abs().max().item()
+        print(f"[tea -inf {gran:9}] skips={skips} max|Δ|={delta:.2e} units={transformer._nano_cache.num_units}")
+        assert skips == 0, f"{gran}: negative threshold should never skip"
+        assert torch.allclose(out, base_out, atol=1e-5, rtol=1e-4), f"{gran}: forced-compute != baseline"
+        remove_cache_from_transformer(transformer)
 
-    # ---- TeaCache, large threshold => skip everything outside forced window ----
+    # ---- TeaCache stack, large threshold => 5 compute + 5 skip per branch ----
     apply_cache_on_transformer(
-        transformer,
-        algorithm="teacache",
-        num_inference_steps=steps,
-        rel_l1_thresh=1e9,
-        coefficients=[1.0, 0.0],
-        use_ret_steps=True,
+        transformer, policy="teacache", num_inference_steps=steps,
+        rel_l1_thresh=1e9, coefficients=[1.0, 0.0], use_ret_steps=True,
     )
     tea_out = run(pipe, latents, prompt, negative, steps)
     stats = transformer._nano_cache.stats
-    print(f"[tea +inf ] stats={stats}")
-    assert torch.isfinite(tea_out).all(), "TeaCache produced non-finite output"
-    # Per branch: ret_steps=5 forced-compute, remaining 5 skipped.
+    print(f"[tea +inf stack    ] stats={stats}")
+    assert torch.isfinite(tea_out).all()
     for branch, s in stats.items():
-        assert s["calc"] == 5, f"{branch}: expected 5 forced computes, got {s['calc']}"
-        assert s["skip"] == 5, f"{branch}: expected 5 skips, got {s['skip']}"
+        assert s["calc"] == 5 and s["skip"] == 5, f"{branch}: expected 5/5, got {s}"
     remove_cache_from_transformer(transformer)
 
-    # ---- FBCache, large threshold => skip remaining blocks each step ----
+    # ---- FBCache stack, large threshold => skip after the first compute ----
     apply_cache_on_transformer(
-        transformer,
-        algorithm="fbcache",
-        num_inference_steps=steps,
-        rel_l1_thresh=1e9,
+        transformer, policy="fbcache", num_inference_steps=steps, rel_l1_thresh=1e9,
     )
     fb_out = run(pipe, latents, prompt, negative, steps)
-    stats = transformer._nano_cache.stats
-    skips = sum(b["skip"] for b in stats.values())
-    print(f"[fb  +inf ] skips={skips} stats={stats}")
-    assert torch.isfinite(fb_out).all(), "FBCache produced non-finite output"
-    assert skips > 0, "FBCache with large threshold should skip"
+    skips = sum(b["skip"] for b in transformer._nano_cache.stats.values())
+    print(f"[fb  +inf stack    ] stats={transformer._nano_cache.stats}")
+    assert torch.isfinite(fb_out).all() and skips > 0, "FBCache should skip"
+    remove_cache_from_transformer(transformer)
+
+    # ---- per_block plumbing: N independent units, still skips, stays finite ----
+    apply_cache_on_transformer(
+        transformer, policy="teacache", num_inference_steps=steps, granularity="per_block",
+        rel_l1_thresh=1e9, coefficients=[1.0, 0.0], use_ret_steps=True,
+    )
+    pb_out = run(pipe, latents, prompt, negative, steps)
+    ctrl = transformer._nano_cache
+    skips = sum(b["skip"] for b in ctrl.stats.values())
+    print(f"[tea +inf per_block] units={ctrl.num_units} stats={ctrl.stats}")
+    assert torch.isfinite(pb_out).all()
+    assert ctrl.num_units == NUM_LAYERS, f"expected {NUM_LAYERS} units, got {ctrl.num_units}"
+    assert skips > 0, "per_block TeaCache should skip"
+    remove_cache_from_transformer(transformer)
+
+    # ---- per_block sample policy registers and runs ----
+    apply_cache_on_transformer(
+        transformer, policy="perblock_demo", num_inference_steps=steps,
+        granularity="per_block", rel_l1_thresh=1e9, protect=1,
+    )
+    demo_out = run(pipe, latents, prompt, negative, steps)
+    print(f"[perblock_demo     ] stats={transformer._nano_cache.stats}")
+    assert torch.isfinite(demo_out).all()
     remove_cache_from_transformer(transformer)
 
     print("\nAll tiny-model cache checks passed.")

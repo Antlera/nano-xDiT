@@ -14,7 +14,7 @@
 
 import torch
 
-from nanoxdit.cache.wan_adapter import apply_cache_on_transformer
+from nanoxdit.cache import apply_cache_on_transformer
 
 
 class NanoWanPipeline:

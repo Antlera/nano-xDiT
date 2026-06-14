@@ -54,7 +54,7 @@ def main():
 
     rows = [("baseline (no cache)", base_t, 1.0, 0, base_mem)]
     for thr in THRESHOLDS:
-        pipe.enable_cache(algorithm="teacache", num_inference_steps=STEPS,
+        pipe.enable_cache(policy="teacache", num_inference_steps=STEPS,
                           rel_l1_thresh=thr, wan_variant=VARIANT, use_ret_steps=True)
         _, dt, mem = gen(pipe)
         stats = pipe.cache.stats
